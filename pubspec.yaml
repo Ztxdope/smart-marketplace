@@ -1,0 +1,130 @@
+name: smart_marketplace
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  
+  # Core & Backend
+  supabase_flutter: ^2.6.0
+  flutter_riverpod: ^2.5.1
+  
+  # UI Utilities
+  google_fonts: ^6.1.0
+  intl: ^0.19.0 # Untuk format mata uang (Rp)
+  
+  # Hardware & Files
+  image_picker: ^1.0.7
+  
+  # AI & Machine Learning (On-Device)
+  #google_mlkit_image_labeling: ^0.11.0 # Object Detection
+  #google_mlkit_text_recognition: ^0.13.0 # OCR
+
+  # --- UI & UX UPGRADE ---
+  flutter_slidable: ^3.1.0        # Geser untuk hapus/edit (List Barang)
+  flutter_animate: ^4.5.0         # Animasi halus (Splash & Cards)
+  animated_text_kit: ^4.2.2       # Teks mengetik (Splash)
+  flutter_svg: ^2.0.10            # Render SVG (Icon custom)
+  auto_size_text: ^3.0.0          # Teks otomatis mengecil (Judul Produk)
+  font_awesome_flutter: ^10.7.0   # Icon pack lengkap
+  fluentui_system_icons: ^1.1.225 # Icon ala Microsoft (Modern)
+  
+  # Navigasi & Layout
+  convex_bottom_bar: ^3.2.0       # Bottom Bar melengkung keren
+  toggle_switch: ^2.3.0           # Tombol switch cakep (Profile)
+  
+  # Theming
+  #flex_color_scheme: 7.3.1      # Tema warna profesional instan
+  
+  # Utils
+  infinite_scroll_pagination: ^4.0.0
+
+  location: ^6.0.2       # Untuk akses GPS
+  geocoding: ^3.0.0      # Untuk ubah LatLong jadi Alamat (Kota/Kecamatan)
+  url_launcher: ^6.2.5   # (Opsional) Untuk buka Google Maps
+
+  google_generative_ai: ^0.4.0 # Library Resmi Google Gemini
+  google_maps_flutter: ^2.5.3
+
+  speech_to_text: ^7.3.0
+  permission_handler: ^11.3.0
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^5.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  fonts:
+      - family: Nexa
+        fonts:
+          - asset: assets/fonts/Nexa-ExtraLight.ttf
+            weight: 400 # Anggap Light sebagai Regular (Normal)
+          - asset: assets/fonts/Nexa-Heavy.ttf
+            weight: 700 # Ini untuk Bold
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package
