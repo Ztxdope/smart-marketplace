@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // <--- IMPORT
+import 'package:cached_network_image/cached_network_image.dart';
 
-// IMPORT HALAMAN-HALAMAN PENDUKUNG
 import 'admin_edit_user_page.dart';        
 import 'admin_seller_products_page.dart';  
 import '../profile/seller_profile_page.dart'; 
@@ -18,11 +17,15 @@ class AdminDashboardPage extends StatefulWidget {
 class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
   late TabController _tabController;
+  
+  // Variabel untuk menyimpan Future (Agar tidak loading ulang saat rebuild)
+  late Future<List<Map<String, dynamic>>> _productGroupsFuture;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _productGroupsFuture = _fetchProductGroups(); // Panggil sekali di awal
   }
 
   Future<bool> _showConfirmDialog(String title, String content) async {
@@ -44,17 +47,59 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   }
 
   Future<void> _adminDeleteUser(String userId) async {
-    final confirm = await _showConfirmDialog("Hapus User ini?", "Semua data (barang, chat, profil) user ini akan hilang permanen.");
+    final confirm = await _showConfirmDialog("Hapus User ini?", "Semua data user ini akan hilang permanen.");
     if (confirm) {
       try {
-        await _supabase.from('profiles').delete().eq('id', userId);
+        // Coba panggil RPC dulu (lebih bersih)
+        try {
+           await _supabase.rpc('admin_delete_user', params: {'target_user_id': userId});
+        } catch (_) {
+           // Fallback delete manual
+           await _supabase.from('profiles').delete().eq('id', userId);
+        }
+
         if (mounted) {
-          setState(() {});
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User berhasil dihapus dari database")));
+          setState(() {
+            // Refresh List setelah delete
+            _productGroupsFuture = _fetchProductGroups();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User berhasil dihapus")));
         }
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal: $e")));
       }
+    }
+  }
+
+  // --- QUERY MANUAL YANG LEBIH STABIL ---
+  Future<List<Map<String, dynamic>>> _fetchProductGroups() async {
+    try {
+      // 1. Ambil Semua Profil
+      final profiles = await _supabase.from('profiles').select();
+      
+      // 2. Ambil Semua Produk (ID & UserID saja biar ringan)
+      final products = await _supabase.from('products').select('id, user_id');
+
+      // 3. Gabungkan di Flutter (Client Side Join)
+      List<Map<String, dynamic>> results = [];
+      
+      for (var p in profiles) {
+        final String userId = p['id'];
+        // Hitung barang milik user ini
+        final userProducts = products.where((prod) => prod['user_id'] == userId).toList();
+        
+        Map<String, dynamic> data = Map.from(p);
+        data['product_count'] = userProducts.length;
+        results.add(data);
+      }
+
+      // Sort: Yang punya barang paling banyak di atas
+      results.sort((a, b) => (b['product_count'] as int).compareTo(a['product_count'] as int));
+      
+      return results;
+    } catch (e) {
+      debugPrint("Error fetching groups: $e");
+      return [];
     }
   }
 
@@ -88,9 +133,24 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
   Widget _buildAllUsersList() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _supabase.from('profiles').stream(primaryKey: ['id']).order('created_at'),
+      // Query Sederhana: Ambil semua profil tanpa filter aneh-aneh
+      stream: _supabase
+          .from('profiles')
+          .stream(primaryKey: ['id'])
+          .order('created_at', ascending: false), // User baru di atas
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text("Belum ada user lain."));
+        }
+        
         final users = snapshot.data!;
         
         return ListView.separated(
@@ -100,12 +160,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           itemBuilder: (context, index) {
             final user = users[index];
             final isMe = user['id'] == _supabase.auth.currentUser?.id;
-            final isAdmin = user['role'] == 'admin';
+            
+            // Cek role dengan aman (gunakan string kosong jika null)
+            final role = user['role'] ?? 'user';
+            final isAdmin = role == 'admin';
 
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.grey[300],
-                // --- CACHED AVATAR ---
+                // Gunakan CachedNetworkImageProvider jika url ada
                 backgroundImage: user['avatar_url'] != null 
                     ? CachedNetworkImageProvider(user['avatar_url']) 
                     : null,
@@ -113,18 +176,36 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               ),
               title: Row(
                 children: [
-                  Expanded(child: Text(user['full_name'] ?? 'No Name', style: const TextStyle(fontWeight: FontWeight.bold))),
+                  Expanded(
+                    child: Text(
+                      user['full_name'] ?? 'No Name', 
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        // Tandai Admin dengan warna merah
+                        color: isAdmin ? Colors.red : Colors.black
+                      ),
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis
+                    )
+                  ),
                   if (isAdmin) 
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)), child: const Text("ADMIN", style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)))
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
+                      margin: const EdgeInsets.only(left: 4),
+                      decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)), 
+                      child: const Text("ADMIN", style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold))
+                    )
                 ],
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("@${user['username']}"),
-                  Text(user['email'] ?? '-', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text("@${user['username'] ?? '-'}"),
+                  Text(user['email'] ?? 'Email hidden', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
               ),
+              
+              // TOMBOL HAPUS (Kanan)
               trailing: isMe 
                 ? const Chip(label: Text("Anda", style: TextStyle(fontSize: 10))) 
                 : IconButton(
@@ -132,6 +213,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     tooltip: "Hapus User",
                     onPressed: () => _adminDeleteUser(user['id']),
                   ),
+              
+              // KLIK -> EDIT USER
               onTap: () {
                  Navigator.push(context, MaterialPageRoute(
                    builder: (_) => AdminEditUserPage(
@@ -152,10 +235,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
   Widget _buildProductGroups() {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _supabase.from('profiles').select('*, products(id)'),
+      future: _productGroupsFuture, // Menggunakan variabel state yang stabil
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("Belum ada data."));
+        
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("Belum ada data user/barang."));
         
         final sellers = snapshot.data!;
 
@@ -165,12 +253,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           separatorBuilder: (_,__) => const Divider(),
           itemBuilder: (context, index) {
             final seller = sellers[index];
-            final productCount = (seller['products'] as List).length;
+            final productCount = seller['product_count'] as int;
 
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.grey[200],
-                // --- CACHED AVATAR ---
                 backgroundImage: seller['avatar_url'] != null 
                     ? CachedNetworkImageProvider(seller['avatar_url']) 
                     : null,
@@ -196,7 +283,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     sellerName: seller['full_name'] ?? 'Penjual'
                   )
                 )).then((_) {
-                  setState(() {});
+                  // Refresh data saat kembali
+                  setState(() {
+                    _productGroupsFuture = _fetchProductGroups();
+                  });
                 });
               },
             );
