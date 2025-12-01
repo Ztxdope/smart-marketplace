@@ -1,30 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// Import untuk formatting
-import 'package:intl/date_symbol_data_local.dart'; 
-import 'package:intl/intl.dart';
-
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:firebase_core/firebase_core.dart'; // Import Firebase
 import 'core/constants.dart';
+import 'core/app_theme.dart';
 import 'features/splash/splash_page.dart';
+import 'core/notification_service.dart';
 
 void main() async {
-  // 1. Pastikan Binding terinisialisasi dulu
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Inisialisasi Supabase
+  await initializeDateFormatting('id_ID', null);
+  
+  // --- INISIALISASI FIREBASE ---
+  await Firebase.initializeApp(); 
+  
+  // --- INISIALISASI NOTIFIKASI ---
+  await NotificationService.initialize();
+
   await Supabase.initialize(
     url: AppConstants.supabaseUrl,
     anonKey: AppConstants.supabaseAnonKey,
   );
-
-  // 3. Inisialisasi Data Format Tanggal (PENTING)
-  // Kita initialize 'id' untuk Indonesia. 
-  // Gunakan await agar selesai sebelum UI dirender.
-  await initializeDateFormatting('id_ID', null);
-  
-  // Set default locale sistem ke Indonesia (Opsional tapi bagus)
-  Intl.defaultLocale = 'id_ID';
 
   runApp(const ProviderScope(child: MyApp()));
 }

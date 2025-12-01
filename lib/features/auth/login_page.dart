@@ -13,7 +13,7 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   // Controllers
   final _emailOrUserCtrl = TextEditingController(); 
-  final _fullNameCtrl = TextEditingController(); // Baru: Nama Lengkap
+  final _fullNameCtrl = TextEditingController(); 
   final _usernameCtrl = TextEditingController();    
   final _emailCtrl = TextEditingController();       
   final _passCtrl = TextEditingController();
@@ -24,7 +24,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePass = true;
   bool _obscureConfirm = true;
   
-  // Baru: Checkbox Terms
+  // Checkbox Terms
   bool _agreeToTerms = false; 
 
   Future<void> _submit() async {
@@ -45,53 +45,34 @@ class _LoginPageState extends State<LoginPage> {
 
         await supabase.auth.signInWithPassword(email: emailToLogin, password: password);
       } else {
-        // --- LOGIKA REGISTER (VALIDASI KETAT) ---
+        // --- LOGIKA REGISTER ---
         final fullName = _fullNameCtrl.text.trim();
         final email = _emailCtrl.text.trim();
         final username = _usernameCtrl.text.trim();
         final password = _passCtrl.text;
         final confirm = _confirmPassCtrl.text;
 
-        // 1. Validasi Terms of Service
-        if (!_agreeToTerms) {
-          throw 'Anda harus menyetujui Syarat dan Ketentuan Layanan.';
-        }
-
-        // 2. Validasi Nama Lengkap (Gaboleh ada angka)
-        if (fullName.isEmpty) throw 'Nama Lengkap wajib diisi';
-        if (fullName.contains(RegExp(r'[0-9]'))) {
-          throw 'Nama Lengkap tidak boleh mengandung angka.';
-        }
-
-        // 3. Validasi Username (Standar)
-        if (username.isEmpty) throw 'Username wajib diisi';
-        final validUser = RegExp(r'^[a-zA-Z0-9_.]+$');
-        if (!validUser.hasMatch(username)) throw 'Username hanya boleh huruf, angka, titik, dan _';
-
-        // 4. Validasi Password (Complex)
-        if (password != confirm) throw 'Password konfirmasi tidak sama!';
-        if (password.length < 8) throw 'Password minimal 8 karakter';
+        if (!_agreeToTerms) throw 'Anda harus menyetujui Syarat dan Ketentuan.';
         
-        // Cek Huruf Besar
-        if (!password.contains(RegExp(r'[A-Z]'))) {
-          throw 'Password harus mengandung minimal 1 Huruf Besar (A-Z).';
-        }
-        // Cek Huruf Kecil
-        if (!password.contains(RegExp(r'[a-z]'))) {
-          throw 'Password harus mengandung minimal 1 Huruf Kecil (a-z).';
-        }
-        // Cek Simbol Spesial
-        if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) {
-          throw 'Password harus mengandung minimal 1 Simbol (!@#\$%^&*).';
-        }
+        if (fullName.isEmpty) throw 'Nama Lengkap wajib diisi';
+        if (fullName.contains(RegExp(r'[0-9]'))) throw 'Nama Lengkap tidak boleh mengandung angka.';
 
-        // --- PROSES DAFTAR KE SUPABASE ---
+        if (username.isEmpty) throw 'Username wajib diisi';
+        if (!RegExp(r'^[a-zA-Z0-9_.]+$').hasMatch(username)) throw 'Username hanya boleh huruf, angka, titik, dan _';
+
+        if (password != confirm) throw 'Password tidak sama!';
+        if (password.length < 8) throw 'Password minimal 8 karakter';
+        if (!password.contains(RegExp(r'[A-Z]'))) throw 'Password harus ada Huruf Besar (A-Z).';
+        if (!password.contains(RegExp(r'[a-z]'))) throw 'Password harus ada Huruf Kecil (a-z).';
+        if (!password.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>]'))) throw 'Password harus ada Simbol.';
+
+        // Proses Daftar
         await supabase.auth.signUp(
           email: email,
           password: password,
           data: {
-            'full_name': fullName, // Simpan Nama Lengkap Asli
-            'username': username,  // Simpan Username Unik
+            'full_name': fullName, 
+            'username': username,  
           },
         );
         
@@ -100,8 +81,6 @@ class _LoginPageState extends State<LoginPage> {
              content: Text('Registrasi Berhasil! Silakan Login.'),
              backgroundColor: Colors.green,
            ));
-           
-           // Reset Form & Pindah ke Login
            setState(() { 
              _isLogin = true; 
              _emailOrUserCtrl.text = username; 
@@ -161,6 +140,9 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Ambil warna tema
+    final primaryColor = Theme.of(context).primaryColor;
+
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
@@ -171,11 +153,7 @@ class _LoginPageState extends State<LoginPage> {
             children: [
               Text(
                 _isLogin ? 'Selamat Datang' : 'Buat Akun Baru',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).primaryColor,
-                ),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: primaryColor),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
@@ -186,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 32),
 
-              // --- FORM LOGIN ---
+              // FORM LOGIN
               if (_isLogin) ...[
                 TextField(
                   controller: _emailOrUserCtrl,
@@ -195,27 +173,24 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 16),
               ],
 
-              // --- FORM REGISTER ---
+              // FORM REGISTER
               if (!_isLogin) ...[
-                // Nama Lengkap (Baru)
                 TextField(
                   controller: _fullNameCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(labelText: 'Nama Lengkap', prefixIcon: Icon(Icons.badge_outlined)),
+                  decoration: const InputDecoration(labelText: 'Nama Lengkap (Sesuai KTP)', prefixIcon: Icon(Icons.badge_outlined)),
                 ),
                 const SizedBox(height: 16),
-                
                 TextField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(labelText: 'Alamat Email', prefixIcon: Icon(Icons.email_outlined)),
                 ),
                 const SizedBox(height: 16),
-                
                 TextField(
                   controller: _usernameCtrl,
                   inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_.]'))],
-                  decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.alternate_email)),
+                  decoration: const InputDecoration(labelText: 'Username (Unik)', prefixIcon: Icon(Icons.alternate_email)),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -243,32 +218,21 @@ class _LoginPageState extends State<LoginPage> {
                     suffixIcon: IconButton(icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm)),
                   ),
                 ),
-                
                 const SizedBox(height: 12),
-                
-                // --- CHECKBOX TERMS OF SERVICE ---
                 Row(
                   children: [
                     Checkbox(
                       value: _agreeToTerms, 
-                      activeColor: Theme.of(context).primaryColor,
+                      activeColor: primaryColor,
                       onChanged: (val) => setState(() => _agreeToTerms = val ?? false)
                     ),
-                    Expanded(
-                      child: Text(
-                        "Saya setuju dengan Syarat & Ketentuan Layanan Aplikasi.",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                      ),
-                    ),
+                    Expanded(child: Text("Saya setuju dengan Syarat & Ketentuan Layanan.", style: TextStyle(fontSize: 12, color: Colors.grey[700]))),
                   ],
                 ),
               ],
 
               if (_isLogin) 
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(onPressed: _showForgotPasswordDialog, child: const Text("Lupa Password?")),
-                ),
+                Align(alignment: Alignment.centerRight, child: TextButton(onPressed: _showForgotPasswordDialog, child: const Text("Lupa Password?"))),
 
               const SizedBox(height: 24),
 
@@ -289,16 +253,11 @@ class _LoginPageState extends State<LoginPage> {
                     onPressed: () {
                       setState(() {
                         _isLogin = !_isLogin;
-                        // Clear semua form
-                        _passCtrl.clear(); 
-                        _confirmPassCtrl.clear(); 
-                        _emailCtrl.clear(); 
-                        _usernameCtrl.clear();
-                        _fullNameCtrl.clear();
-                        _agreeToTerms = false;
+                        _passCtrl.clear(); _confirmPassCtrl.clear(); _emailCtrl.clear(); 
+                        _usernameCtrl.clear(); _fullNameCtrl.clear(); _agreeToTerms = false;
                       });
                     },
-                    style: TextButton.styleFrom(foregroundColor: Theme.of(context).primaryColor),
+                    style: TextButton.styleFrom(foregroundColor: primaryColor),
                     child: Text(_isLogin ? 'Daftar disini' : 'Login disini', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],

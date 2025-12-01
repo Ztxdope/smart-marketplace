@@ -46,7 +46,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  // --- FUNGSI AMBIL FOTO DARI GALERI ---
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery);
@@ -55,7 +54,26 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  // --- FUNGSI SIMPAN & UPLOAD ---
+  // --- LOGIKA DELETE FILE LAMA ---
+  Future<void> _deleteOldAvatar() async {
+    if (_currentAvatarUrl == null) return;
+
+    try {
+      // URL Supabase formatnya biasanya: .../storage/v1/object/public/avatars/nama_file.jpg
+      // Kita perlu ambil bagian terakhir (nama_file.jpg)
+      final uri = Uri.parse(_currentAvatarUrl!);
+      final pathSegments = uri.pathSegments; 
+      // pathSegments terakhir adalah nama file
+      final fileName = pathSegments.last;
+
+      // Hapus dari bucket 'avatars'
+      await _supabase.storage.from('avatars').remove([fileName]);
+      debugPrint("File lama terhapus: $fileName");
+    } catch (e) {
+      debugPrint("Gagal hapus file lama (mungkin sudah hilang): $e");
+    }
+  }
+
   Future<void> _saveProfile() async {
     if (_nameCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Nama tidak boleh kosong")));
@@ -67,12 +85,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final user = _supabase.auth.currentUser!;
       String? avatarUrl = _currentAvatarUrl;
 
-      // 1. Jika ada foto baru, upload ke Storage 'avatars'
+      // 1. Jika ada foto BARU yang dipilih
       if (_imageFile != null) {
+        // A. Hapus foto LAMA dulu (Bersih-bersih)
+        await _deleteOldAvatar();
+
+        // B. Upload foto BARU
         final fileName = 'avatar_${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        // Upload file
         await _supabase.storage.from('avatars').upload(fileName, _imageFile!, fileOptions: const FileOptions(upsert: true)); 
-        // Ambil URL Publik
+        
+        // C. Dapatkan URL baru
         avatarUrl = _supabase.storage.from('avatars').getPublicUrl(fileName);
       }
 
@@ -92,7 +114,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Gagal: $e. Pastikan bucket 'avatars' sudah dibuat."),
+          content: Text("Gagal: $e"),
           backgroundColor: Colors.red,
         ));
       }
@@ -103,7 +125,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Ambil warna utama dari tema (Merah)
     final primaryColor = Theme.of(context).primaryColor;
 
     return Scaffold(
@@ -114,7 +135,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                // --- AVATAR PICKER (GANTI TEXT URL JADI INI) ---
                 GestureDetector(
                   onTap: _pickImage,
                   child: Stack(
@@ -128,10 +148,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         child: CircleAvatar(
                           radius: 60,
                           backgroundColor: Colors.grey[200],
-                          // Prioritas Tampilan: 
-                          // 1. File Baru (jika baru pilih)
-                          // 2. URL Lama (jika ada di DB)
-                          // 3. Icon Orang (default)
                           backgroundImage: _imageFile != null 
                               ? FileImage(_imageFile!) 
                               : (_currentAvatarUrl != null ? NetworkImage(_currentAvatarUrl!) : null) as ImageProvider?,
@@ -140,7 +156,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                               : null,
                         ),
                       ),
-                      // Ikon Kamera Kecil
                       Positioned(
                         bottom: 0, right: 0,
                         child: Container(
@@ -157,14 +172,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 const Text("Ketuk foto untuk mengganti", style: TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(height: 30),
 
-                // Input Nama
                 TextFormField(
                   controller: _nameCtrl,
                   decoration: const InputDecoration(labelText: "Nama Lengkap", prefixIcon: Icon(Icons.badge)),
                 ),
                 const SizedBox(height: 16),
                 
-                // Input Username (Readonly)
                 TextFormField(
                   controller: _usernameCtrl,
                   enabled: false, 
@@ -173,14 +186,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 
                 const SizedBox(height: 40),
 
-                // --- TOMBOL SIMPAN (WARNA MERAH) ---
                 SizedBox(
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _saveProfile,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor, // Merah
+                      backgroundColor: primaryColor,
                       foregroundColor: Colors.white,
                     ),
                     child: _isSaving 
