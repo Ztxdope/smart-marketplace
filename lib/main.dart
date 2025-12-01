@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart'; // Import Firebase
 import 'core/constants.dart';
-import 'core/app_theme.dart';
 import 'features/splash/splash_page.dart';
 import 'core/notification_service.dart';
 

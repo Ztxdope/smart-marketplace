@@ -11,7 +11,7 @@ buildscript {
         // Saya tambahkan juga gradle dan kotlin plugin agar aman
         classpath("com.android.tools.build:gradle:7.3.0") // Sesuaikan jika perlu
         // COBA TURUNKAN VERSI KOTLIN INI:
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0") 
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0") 
         classpath("com.google.gms:google-services:4.3.15")
     }
 }
