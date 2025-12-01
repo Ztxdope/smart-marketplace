@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'chat_page.dart';
 import 'archived_chats_page.dart'; // Pastikan file ini ada (dari tutorial sebelumnya)
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ChatListPage extends StatefulWidget {
   const ChatListPage({super.key});
@@ -233,13 +234,12 @@ class _ChatListPageState extends State<ChatListPage> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.grey.shade300),
+                  // --- CACHED IMAGE ---
                   image: chat['product_image'] != null 
                     ? DecorationImage(
-                        image: NetworkImage(chat['product_image']),
+                        image: CachedNetworkImageProvider(chat['product_image']), 
                         fit: BoxFit.cover,
-                        colorFilter: status == 'Terjual' 
-                            ? const ColorFilter.mode(Colors.grey, BlendMode.saturation) 
-                            : null
+                        colorFilter: status == 'Terjual' ? const ColorFilter.mode(Colors.grey, BlendMode.saturation) : null
                       )
                     : null,
                   color: Colors.grey[200],

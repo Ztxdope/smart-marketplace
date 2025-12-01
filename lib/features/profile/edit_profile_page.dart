@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // <--- IMPORT
 
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
@@ -13,10 +14,11 @@ class EditProfilePage extends StatefulWidget {
 class _EditProfilePageState extends State<EditProfilePage> {
   final _supabase = Supabase.instance.client;
   final _nameCtrl = TextEditingController();
-  final _usernameCtrl = TextEditingController(); // Readonly
+  final _usernameCtrl = TextEditingController(); 
+  final _emailCtrl = TextEditingController(); 
   
-  File? _imageFile; // File foto dari galeri
-  String? _currentAvatarUrl; // URL foto lama dari database
+  File? _imageFile; 
+  String? _currentAvatarUrl; 
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -32,11 +34,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     try {
       final data = await _supabase.from('profiles').select().eq('id', user.id).single();
-      
       if (mounted) {
         setState(() {
           _nameCtrl.text = data['full_name'] ?? '';
           _usernameCtrl.text = data['username'] ?? '';
+          _emailCtrl.text = data['email'] ?? user.email ?? ''; 
           _currentAvatarUrl = data['avatar_url'];
           _isLoading = false;
         });
@@ -54,24 +56,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  // --- LOGIKA DELETE FILE LAMA ---
   Future<void> _deleteOldAvatar() async {
     if (_currentAvatarUrl == null) return;
-
     try {
-      // URL Supabase formatnya biasanya: .../storage/v1/object/public/avatars/nama_file.jpg
-      // Kita perlu ambil bagian terakhir (nama_file.jpg)
       final uri = Uri.parse(_currentAvatarUrl!);
-      final pathSegments = uri.pathSegments; 
-      // pathSegments terakhir adalah nama file
-      final fileName = pathSegments.last;
-
-      // Hapus dari bucket 'avatars'
+      final fileName = uri.pathSegments.last;
       await _supabase.storage.from('avatars').remove([fileName]);
-      debugPrint("File lama terhapus: $fileName");
-    } catch (e) {
-      debugPrint("Gagal hapus file lama (mungkin sudah hilang): $e");
-    }
+    } catch (e) {}
   }
 
   Future<void> _saveProfile() async {
@@ -85,39 +76,24 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final user = _supabase.auth.currentUser!;
       String? avatarUrl = _currentAvatarUrl;
 
-      // 1. Jika ada foto BARU yang dipilih
       if (_imageFile != null) {
-        // A. Hapus foto LAMA dulu (Bersih-bersih)
         await _deleteOldAvatar();
-
-        // B. Upload foto BARU
         final fileName = 'avatar_${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
         await _supabase.storage.from('avatars').upload(fileName, _imageFile!, fileOptions: const FileOptions(upsert: true)); 
-        
-        // C. Dapatkan URL baru
         avatarUrl = _supabase.storage.from('avatars').getPublicUrl(fileName);
       }
 
-      // 2. Update Data Profil di Database
       await _supabase.from('profiles').update({
         'full_name': _nameCtrl.text.trim(),
         'avatar_url': avatarUrl,
       }).eq('id', user.id);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Profil berhasil diperbarui!"), 
-          backgroundColor: Colors.green
-        ));
-        Navigator.pop(context, true); // Kembali & Refresh
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profil berhasil diperbarui!"), backgroundColor: Colors.green));
+        Navigator.pop(context, true); 
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Gagal: $e"),
-          backgroundColor: Colors.red,
-        ));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal: $e"), backgroundColor: Colors.red));
     } finally {
       setState(() => _isSaving = false);
     }
@@ -141,29 +117,23 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle, 
-                          border: Border.all(color: primaryColor, width: 2)
-                        ),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: primaryColor, width: 2)),
                         child: CircleAvatar(
                           radius: 60,
                           backgroundColor: Colors.grey[200],
+                          // --- LOGIKA CACHED AVATAR ---
+                          // 1. File Baru (Belum diupload) -> Pakai FileImage
+                          // 2. Ada URL di DB -> Pakai CachedNetworkImageProvider
+                          // 3. Tidak ada -> Null (Icon Person)
                           backgroundImage: _imageFile != null 
                               ? FileImage(_imageFile!) 
-                              : (_currentAvatarUrl != null ? NetworkImage(_currentAvatarUrl!) : null) as ImageProvider?,
+                              : (_currentAvatarUrl != null ? CachedNetworkImageProvider(_currentAvatarUrl!) : null) as ImageProvider?,
                           child: (_imageFile == null && _currentAvatarUrl == null) 
                               ? const Icon(Icons.person, size: 60, color: Colors.grey) 
                               : null,
                         ),
                       ),
-                      Positioned(
-                        bottom: 0, right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle),
-                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                        ),
-                      )
+                      Positioned(bottom: 0, right: 0, child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle), child: const Icon(Icons.camera_alt, color: Colors.white, size: 20)))
                     ],
                   ),
                 ),
@@ -172,17 +142,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 const Text("Ketuk foto untuk mengganti", style: TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(height: 30),
 
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(labelText: "Nama Lengkap", prefixIcon: Icon(Icons.badge)),
-                ),
+                TextFormField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "Nama Lengkap", prefixIcon: Icon(Icons.badge))),
                 const SizedBox(height: 16),
                 
-                TextFormField(
-                  controller: _usernameCtrl,
-                  enabled: false, 
-                  decoration: const InputDecoration(labelText: "Username", prefixIcon: Icon(Icons.alternate_email), filled: true),
-                ),
+                TextFormField(controller: _usernameCtrl, enabled: false, decoration: const InputDecoration(labelText: "Username", prefixIcon: Icon(Icons.alternate_email), filled: true)),
+                const SizedBox(height: 16),
+
+                TextFormField(controller: _emailCtrl, enabled: false, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), filled: true)),
                 
                 const SizedBox(height: 40),
 
@@ -191,13 +157,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   height: 50,
                   child: ElevatedButton(
                     onPressed: _isSaving ? null : _saveProfile,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: _isSaving 
-                        ? const CircularProgressIndicator(color: Colors.white) 
-                        : const Text("SIMPAN PERUBAHAN"),
+                    style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white),
+                    child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text("SIMPAN PERUBAHAN"),
                   ),
                 )
               ],

@@ -20,17 +20,10 @@ class _ArchivedChatsPageState extends State<ArchivedChatsPage> {
     _fetchArchivedChats();
   }
 
-  // Unarchive (Kembalikan ke Inbox)
-  Future<void> _unarchiveChat(String roomId) async {
-    await Supabase.instance.client.from('chat_archives').delete().eq('room_id', roomId).eq('user_id', _myId!);
-    _fetchArchivedChats(); // Refresh
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat dikembalikan ke Inbox")));
-  }
-
   Future<void> _fetchArchivedChats() async {
     final supabase = Supabase.instance.client;
     
-    // 1. Ambil daftar room_id dari tabel archives
+    // 1. Ambil daftar arsip
     final archives = await supabase.from('chat_archives').select().eq('user_id', _myId!);
     
     List<Map<String, dynamic>> results = [];
@@ -39,19 +32,29 @@ class _ArchivedChatsPageState extends State<ArchivedChatsPage> {
       final roomId = item['room_id'];
       final mode = item['mode'];
 
-      // 2. Ambil pesan terakhir untuk preview
-      final msgRes = await supabase.from('messages').select().eq('room_id', roomId).order('created_at', ascending: false).limit(1).maybeSingle();
+      // 2. Coba ambil salah satu pesan (untuk preview)
+      final msgRes = await supabase.from('messages')
+          .select()
+          .eq('room_id', roomId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
       
-      if (msgRes != null) {
-        // 3. Ambil Info Produk
+      // Kalau pesan sudah kosong (terhapus semua), kita buat data dummy biar tetap bisa dihapus dari arsip
+      Map<String, dynamic> chatData = msgRes != null 
+          ? Map.from(msgRes) 
+          : {'room_id': roomId, 'content': 'Percakapan kosong', 'created_at': item['created_at']};
+      
+      try {
         final productId = roomId.split('_')[0];
         final productRes = await supabase.from('products').select('title').eq('id', productId).maybeSingle();
-        
-        Map<String, dynamic> chatData = Map.from(msgRes);
         chatData['product_title'] = productRes != null ? productRes['title'] : 'Produk';
-        chatData['archive_mode'] = mode;
-        results.add(chatData);
+      } catch (e) {
+        chatData['product_title'] = 'Chat';
       }
+
+      chatData['archive_mode'] = mode;
+      results.add(chatData);
     }
 
     if (mounted) {
@@ -59,6 +62,49 @@ class _ArchivedChatsPageState extends State<ArchivedChatsPage> {
         _archivedChats = results;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _unarchiveChat(String roomId) async {
+    await Supabase.instance.client.from('chat_archives').delete().eq('room_id', roomId).eq('user_id', _myId!);
+    _fetchArchivedChats(); 
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat dikembalikan ke Inbox")));
+  }
+
+  // --- FUNGSI HAPUS PERMANEN (UPDATED) ---
+  Future<void> _deleteChatPermanently(String roomId) async {
+    final confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Hapus Permanen?"),
+        content: const Text("Seluruh riwayat percakapan akan dihapus untuk kedua belah pihak."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Batal")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text("Hapus Semuanya"),
+          ),
+        ],
+      )
+    );
+
+    if (confirm == true) {
+      try {
+        // 1. Hapus dari Tabel Arsip (Supaya tidak nyangkut di list arsip)
+        await Supabase.instance.client.from('chat_archives').delete().eq('room_id', roomId).eq('user_id', _myId!);
+
+        // 2. Hapus SEMUA pesan di room tersebut (Tabel Messages)
+        // (Berkat SQL di Langkah 1, sekarang ini akan menghapus pesan lawan bicara juga)
+        await Supabase.instance.client.from('messages').delete().eq('room_id', roomId);
+
+        if (mounted) {
+          _fetchArchivedChats(); // Refresh list UI
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Percakapan berhasil dihapus total")));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal hapus: $e")));
+      }
     }
   }
 
@@ -81,16 +127,28 @@ class _ArchivedChatsPageState extends State<ArchivedChatsPage> {
 
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: Colors.grey[300],
-                    child: Icon(isPermanent ? Icons.notifications_off : Icons.history, color: Colors.grey[700]),
+                    backgroundColor: isPermanent ? Colors.orange[100] : Colors.green[100],
+                    child: Icon(isPermanent ? Icons.notifications_off : Icons.history, color: isPermanent ? Colors.orange : Colors.green),
                   ),
                   title: Text(chat['product_title'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(chat['content'], maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.unarchive, color: Colors.blue),
-                    onPressed: () => _unarchiveChat(chat['room_id']),
-                    tooltip: "Kembalikan ke Inbox",
+                  subtitle: Text(chat['content'] ?? '-', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.unarchive, color: Colors.blue),
+                        onPressed: () => _unarchiveChat(chat['room_id']),
+                        tooltip: "Kembalikan",
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _deleteChatPermanently(chat['room_id']),
+                        tooltip: "Hapus Permanen",
+                      ),
+                    ],
                   ),
+
                   onTap: () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => ChatPage(roomId: chat['room_id'], productTitle: chat['product_title'], sellerId: sellerId)));
                   },

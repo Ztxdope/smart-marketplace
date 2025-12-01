@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_generative_ai/google_generative_ai.dart'; // Gemini
 import '../../core/constants.dart';
 import '../product/product_detail_page.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -207,10 +208,12 @@ class _SearchPageState extends State<SearchPage> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: Image.network(
-                              product['image_url'] ?? '', 
+                            // --- CACHED IMAGE ---
+                            child: CachedNetworkImage(
+                              imageUrl: product['image_url'] ?? '', 
                               width: 80, height: 80, fit: BoxFit.cover,
-                              errorBuilder: (_,__,___) => Container(color: Colors.grey[200], width: 80, height: 80),
+                              placeholder: (context, url) => Container(width: 80, height: 80, color: Colors.grey[200]),
+                              errorWidget: (_,__,___) => Container(color: Colors.grey[200], width: 80, height: 80),
                             ),
                           ),
                           const SizedBox(width: 12),

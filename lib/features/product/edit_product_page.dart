@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // <--- IMPORT
 
 class EditProductPage extends StatefulWidget {
   final Map<String, dynamic> product;
@@ -36,7 +37,10 @@ class _EditProductPageState extends State<EditProductPage> {
       }).eq('id', widget.product['id']);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data berhasil diperbarui!")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Data berhasil diperbarui!"),
+          backgroundColor: Colors.green,
+        ));
         Navigator.pop(context);
       }
     } catch (e) {
@@ -48,6 +52,8 @@ class _EditProductPageState extends State<EditProductPage> {
 
   @override
   Widget build(BuildContext context) {
+    final primaryColor = Theme.of(context).primaryColor;
+
     return Scaffold(
       appBar: AppBar(title: const Text("Edit Produk")),
       body: SingleChildScrollView(
@@ -57,20 +63,52 @@ class _EditProductPageState extends State<EditProductPage> {
           child: Column(
             children: [
               if (widget.product['image_url'] != null)
-                Image.network(widget.product['image_url'], height: 150, fit: BoxFit.cover),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  // --- CACHED IMAGE ---
+                  child: CachedNetworkImage(
+                    imageUrl: widget.product['image_url'],
+                    height: 200, 
+                    width: double.infinity, 
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(height: 200, color: Colors.grey[200]),
+                    errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
+                  ),
+                ),
               const SizedBox(height: 20),
-              TextFormField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Nama Produk')),
+              
+              TextFormField(
+                controller: _titleCtrl, 
+                decoration: const InputDecoration(labelText: 'Nama Produk', prefixIcon: Icon(Icons.shopping_bag))
+              ),
               const SizedBox(height: 16),
-              TextFormField(controller: _priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Harga')),
+              
+              TextFormField(
+                controller: _priceCtrl, 
+                keyboardType: TextInputType.number, 
+                decoration: const InputDecoration(labelText: 'Harga', prefixIcon: Icon(Icons.attach_money))
+              ),
               const SizedBox(height: 16),
-              TextFormField(controller: _descCtrl, maxLines: 5, decoration: const InputDecoration(labelText: 'Deskripsi')),
+              
+              TextFormField(
+                controller: _descCtrl, 
+                maxLines: 5, 
+                decoration: const InputDecoration(labelText: 'Deskripsi')
+              ),
               const SizedBox(height: 24),
+              
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _updateProduct,
-                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SIMPAN PERUBAHAN"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white
+                  ),
+                  child: _isLoading 
+                      ? const CircularProgressIndicator(color: Colors.white) 
+                      : const Text("SIMPAN PERUBAHAN"),
                 ),
               )
             ],

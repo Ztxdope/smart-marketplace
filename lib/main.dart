@@ -2,22 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:firebase_core/firebase_core.dart'; // Import Firebase
 import 'core/constants.dart';
 import 'features/splash/splash_page.dart';
-import 'core/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Init Format Tanggal Indonesia
   await initializeDateFormatting('id_ID', null);
-  
-  // --- INISIALISASI FIREBASE ---
-  await Firebase.initializeApp(); 
-  
-  // --- INISIALISASI NOTIFIKASI ---
-  await NotificationService.initialize();
 
+  // Init Supabase
   await Supabase.initialize(
     url: AppConstants.supabaseUrl,
     anonKey: AppConstants.supabaseAnonKey,
