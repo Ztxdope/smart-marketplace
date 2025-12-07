@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:toggle_switch/toggle_switch.dart'; 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart'; 
+import 'package:cached_network_image/cached_network_image.dart'; 
 
 // Import Halaman Lain
 import '../auth/login_page.dart';
 import '../chat/chat_list_page.dart';
 import '../product/my_products_page.dart';
-import '../admin/admin_dashboard_page.dart'; // <--- Import Admin Page
+import '../admin/admin_dashboard_page.dart';
 import 'edit_profile_page.dart';
-//import '../settings/settings_page.dart'; // Import Settings jika ada
-import 'package:cached_network_image/cached_network_image.dart';
+import 'about_creators_page.dart';
+import 'seller_profile_page.dart'; // <--- PASTIKAN IMPORT INI ADA
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -25,7 +26,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? _profileData;
   bool _isLoadingProfile = true;
   bool _isStoreOpen = true; 
-  bool _isAdmin = false; // State untuk menyimpan status Admin
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -33,7 +34,6 @@ class _ProfilePageState extends State<ProfilePage> {
     _getProfile();
   }
 
-  // Ambil data profil & cek role
   Future<void> _getProfile() async {
     try {
       final userId = _supabase.auth.currentUser!.id;
@@ -43,21 +43,15 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           _profileData = data;
           _isStoreOpen = data['is_store_open'] ?? true;
-          
-          // --- CEK APAKAH USER ADALAH ADMIN ---
-          // Pastikan kolom 'role' sudah ada di database (lihat SQL sebelumnya)
           _isAdmin = (data['role'] == 'admin');
-          
           _isLoadingProfile = false;
         });
       }
     } catch (e) {
-      debugPrint("Error load profile: $e");
       if (mounted) setState(() => _isLoadingProfile = false);
     }
   }
 
-  // Update status toko Buka/Tutup
   Future<void> _updateStoreStatus(int index) async {
     final isOpen = (index == 0);
     try {
@@ -80,7 +74,6 @@ class _ProfilePageState extends State<ProfilePage> {
     final String username = _profileData?['username'] ?? 'username';
     final String? avatarUrl = _profileData?['avatar_url'];
     
-    // Warna Tema
     final primaryColor = Theme.of(context).primaryColor;
 
     return Scaffold(
@@ -91,26 +84,40 @@ class _ProfilePageState extends State<ProfilePage> {
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                // --- AVATAR & NAMA ---
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: primaryColor, width: 2)),
-                  child: CircleAvatar(
-                    radius: 50, backgroundColor: Colors.grey[200],
-                    // --- CACHED PROVIDER ---
-                    backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty) 
-                        ? CachedNetworkImageProvider(avatarUrl) 
-                        : null,
-                    child: (avatarUrl == null || avatarUrl.isEmpty)
-                        ? Text(fullName[0].toUpperCase(), style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold))
-                        : null,
+                // --- AVATAR (KLIK -> KE SELLER PROFILE) ---
+                GestureDetector(
+                  onTap: () {
+                    // Navigasi ke halaman SellerProfilePage dengan ID sendiri
+                    if (user != null) {
+                      Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => SellerProfilePage(sellerId: user.id)
+                      ));
+                    }
+                  },
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: primaryColor, width: 2)),
+                        child: CircleAvatar(
+                          radius: 50, backgroundColor: Colors.grey[200],
+                          backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty) 
+                              ? CachedNetworkImageProvider(avatarUrl) 
+                              : null,
+                          child: (avatarUrl == null || avatarUrl.isEmpty) 
+                              ? Text(fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold)) 
+                              : null,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                // ------------------------------------------
+
                 const SizedBox(height: 12),
                 Text(fullName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 Text("@$username", style: const TextStyle(fontSize: 16, color: Colors.grey)),
                 
-                // Label Admin Keren
                 if (_isAdmin) ...[
                   const SizedBox(height: 8),
                   Container(
@@ -122,7 +129,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 const SizedBox(height: 24),
                 
-                // --- STATUS TOKO ---
                 const Text("Status Toko", style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 ToggleSwitch(
@@ -141,9 +147,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
                 const SizedBox(height: 30),
                 
-                // --- MENU LIST ---
-                
-                // 1. ADMIN PANEL (Hanya muncul jika _isAdmin == true)
+                // MENU LIST
                 if (_isAdmin) ...[
                   _buildMenuTile(
                     icon: Icons.admin_panel_settings, 
@@ -155,17 +159,26 @@ class _ProfilePageState extends State<ProfilePage> {
                   const Divider(),
                 ],
 
-                // 2. Menu User Biasa
                 _buildMenuTile(icon: FontAwesomeIcons.solidComments, color: Colors.blue, title: 'Pesan / Chat', subtitle: 'Riwayat percakapan', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListPage()))),
                 _buildMenuTile(icon: FontAwesomeIcons.boxOpen, color: Colors.purple, title: 'Barang Jualan Saya', subtitle: 'Kelola produk anda', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyProductsPage()))),
-                _buildMenuTile(icon: FontAwesomeIcons.userPen, color: Colors.orange, title: 'Edit Profil', subtitle: 'Ubah nama & foto', onTap: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())); _getProfile(); }),
                 
-                // 3. Settings
-                //_buildMenuTile(icon: Icons.settings, color: Colors.grey, title: 'Pengaturan', subtitle: 'Tema & Bahasa', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
+                _buildMenuTile(
+                  icon: FontAwesomeIcons.userPen, 
+                  color: Colors.orange, 
+                  title: 'Edit Profil', 
+                  subtitle: 'Ubah nama & foto', 
+                  onTap: () async { 
+                    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())); 
+                    if (result == true) _getProfile(); 
+                  }
+                ),
+                
+                const Divider(),
+                
+                _buildMenuTile(icon: Icons.info_outline, color: Colors.teal, title: 'Tentang Pembuat', subtitle: 'Developer aplikasi ini', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutCreatorsPage()))),
 
                 const Divider(height: 40),
                 
-                // 4. Logout
                 _buildMenuTile(icon: FontAwesomeIcons.rightFromBracket, color: Colors.red, title: 'Keluar', subtitle: 'Logout akun', onTap: _handleLogout),
               ],
             ),

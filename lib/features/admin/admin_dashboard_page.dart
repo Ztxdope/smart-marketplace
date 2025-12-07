@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'admin_edit_user_page.dart';        
 import 'admin_seller_products_page.dart';  
-import '../profile/seller_profile_page.dart'; 
 
 class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});

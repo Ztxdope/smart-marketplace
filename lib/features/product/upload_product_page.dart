@@ -1,12 +1,16 @@
 import 'dart:io';
-import 'dart:convert'; // Untuk decode JSON dari Gemini
+import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:location/location.dart'; 
 import 'package:geocoding/geocoding.dart' as geo;
-import 'package:google_generative_ai/google_generative_ai.dart'; // Pakai Gemini
-import '../../core/constants.dart'; // Pastikan API Key ada disini
+import 'package:google_generative_ai/google_generative_ai.dart'; 
+import 'package:flutter_map/flutter_map.dart'; 
+import 'package:latlong2/latlong.dart';      
+import 'package:http/http.dart' as http; 
+import '../../core/constants.dart'; 
 
 class UploadProductPage extends StatefulWidget {
   const UploadProductPage({super.key});
@@ -18,157 +22,209 @@ class UploadProductPage extends StatefulWidget {
 class _UploadProductPageState extends State<UploadProductPage> {
   final _formKey = GlobalKey<FormState>();
   
-  final _titleController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _descController = TextEditingController();
-  final _categoryController = TextEditingController();
+  final _titleCtrl = TextEditingController();
+  final _priceCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   
+  String? _selectedCategory;
   double? _latitude;
   double? _longitude;
 
   File? _imageFile;
   bool _isUploading = false;
-  bool _isAnalyzing = false; // Loading state AI
+  bool _isAnalyzing = false; 
   bool _isLoadingLocation = false;
-  List<String> _aiTags = [];
+  
+  bool _isAddressValid = false; 
 
-  // --- FUNGSI AI GEMINI (SCAN FOTO) ---
-  Future<void> _analyzeImageWithGemini(File image) async {
-    setState(() => _isAnalyzing = true);
+  List<String> _aiTags = [];
+  final MapController _mapController = MapController();
+  LatLng _pickedLocation = const LatLng(-6.200000, 106.816666);
+  
+  List<dynamic> _addressSuggestions = [];
+  Timer? _debounce;
+  bool _isSearchingAddress = false;
+
+  final List<String> _validCategories = [
+    'Kendaraan', 'Sewa Properti', 'Alat Kantor', 'Alat Musik', 
+    'Barang Rumah Tangga', 'Elektronik', 'Hiburan', 'Hobi', 
+    'Jual Rumah', 'Kebutuhan Hewan Peliharaan', 'Keluarga', 
+    'Mainan & Game', 'Pakaian', 'Perlengkapan Renovasi Rumah', 
+    'Taman & Outdoor'
+  ];
+
+  // --- 1. CARI ALAMAT (NOMINATIM API) ---
+  void _onSearchChanged(String query) {
+    if (_isAddressValid) setState(() => _isAddressValid = false); 
+
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 800), () {
+      if (query.length > 3) {
+        _fetchAddressSuggestions(query);
+      } else {
+        setState(() => _addressSuggestions = []);
+      }
+    });
+  }
+
+  Future<void> _fetchAddressSuggestions(String query) async {
+    setState(() => _isSearchingAddress = true);
+    try {
+      final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=5&countrycodes=id');
+      
+      // PERBAIKAN: Tambahkan Header User-Agent agar tidak diblokir OSM
+      final response = await http.get(url, headers: {
+        'User-Agent': 'com.example.smart_marketplace', 
+      });
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _addressSuggestions = json.decode(response.body);
+        });
+      }
+    } catch (e) {
+      debugPrint("Gagal cari alamat: $e");
+    } finally {
+      setState(() => _isSearchingAddress = false);
+    }
+  }
+
+  void _selectSuggestion(Map<String, dynamic> place) {
+    final lat = double.parse(place['lat']);
+    final lon = double.parse(place['lon']);
+    final displayName = place['display_name'];
+
+    setState(() {
+      _locationCtrl.text = displayName;
+      _addressSuggestions = [];
+      _pickedLocation = LatLng(lat, lon);
+      _latitude = lat;
+      _longitude = lon;
+      _isAddressValid = true;
+    });
+
+    _mapController.move(_pickedLocation, 15);
+    FocusScope.of(context).unfocus();
+  }
+
+  // --- 2. AMBIL ALAMAT DARI KOORDINAT (REVERSE GEOCODING) ---
+  // Fungsi ini dipanggil saat Peta di-tap atau GPS aktif
+  Future<void> _getAddressFromLatLng(LatLng point) async {
+    setState(() {
+      _isLoadingLocation = true;
+      _pickedLocation = point; // Update marker dulu biar responsif
+    });
 
     try {
-      // 1. Siapkan Model (Pakai gemini-1.5-flash yang cepat & support gambar)
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash', 
-        apiKey: AppConstants.geminiApiKey,
-      );
-
-      // 2. Baca gambar sebagai bytes
-      final imageBytes = await image.readAsBytes();
-
-      // 3. Buat Prompt Super Pintar (Minta format JSON)
-      final prompt = TextPart(
-        """
-        Kamu adalah asisten AI untuk aplikasi marketplace.
-        Analisis gambar produk ini dan berikan output HANYA dalam format JSON (tanpa markdown ```json).
+      List<geo.Placemark> placemarks = await geo.placemarkFromCoordinates(point.latitude, point.longitude);
+      if (placemarks.isNotEmpty) {
+        geo.Placemark place = placemarks[0];
+        // Format Alamat yang rapi
+        String address = [place.street, place.subLocality, place.locality, place.administrativeArea]
+            .where((s) => s != null && s.isNotEmpty).join(', ');
         
-        Struktur JSON yang diminta:
-        {
-          "title": "Nama produk yang menarik dan singkat (Max 30 karakter)",
-          "price": "Estimasi harga dalam angka rupiah (tanpa titik/koma, contoh: 150000)",
-          "category": "Satu kata kategori yang paling cocok (Contoh: Elektronik, Fashion, Otomotif, Makanan, Hobi)",
-          "description": "Deskripsi penjualan yang persuasif, menarik, dan menyertakan spesifikasi yang terlihat di gambar (Max 3 paragraf).",
-          "tags": ["tag1", "tag2", "tag3", "tag4"]
-        }
-        """
-      );
-
-      // 4. Kirim ke Gemini
-      final content = [
-        Content.multi([
-          prompt,
-          DataPart('image/jpeg', imageBytes),
-        ])
-      ];
-
-      final response = await model.generateContent(content);
-      final responseText = response.text;
-
-      if (responseText != null) {
-        // 5. Bersihkan format JSON (kadang Gemini kasih ```json di awal)
-        String cleanJson = responseText.replaceAll('```json', '').replaceAll('```', '').trim();
-        
-        // 6. Parsing JSON
-        final Map<String, dynamic> data = jsonDecode(cleanJson);
+        // Fallback jika kosong
+        if (address.isEmpty) address = "${place.subAdministrativeArea}, ${place.country}";
 
         setState(() {
-          // Isi Form Otomatis
-          _titleController.text = data['title'] ?? '';
-          _priceController.text = data['price'].toString();
-          _categoryController.text = data['category'] ?? 'Umum';
-          _descController.text = data['description'] ?? '';
-          
-          // Simpan Tags
-          _aiTags = List<String>.from(data['tags'] ?? []);
+          _locationCtrl.text = address; // Isi textfield dengan Nama Jalan
+          _latitude = point.latitude;
+          _longitude = point.longitude;
+          _isAddressValid = true;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("✅ AI Berhasil Mengisi Data!"),
-          backgroundColor: Colors.green,
-        ));
-      }
-
-    } catch (e) {
-      debugPrint("Gemini Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("Gagal analisa AI: $e"), 
-        backgroundColor: Colors.red
-      ));
-    } finally {
-      setState(() => _isAnalyzing = false);
-    }
-  }
-
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    // Pilih dari Galeri (atau ganti ImageSource.camera)
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery); 
-    
-    if (pickedFile != null) {
-      final file = File(pickedFile.path);
-      setState(() => _imageFile = file);
-      
-      // Langsung panggil Gemini setelah foto dipilih
-      _analyzeImageWithGemini(file);
-    }
-  }
-
-  // --- FUNGSI LOKASI (TETAP SAMA) ---
-  Future<void> _getCurrentLocation() async {
-    setState(() => _isLoadingLocation = true);
-    Location location = Location();
-    try {
-      bool serviceEnabled = await location.serviceEnabled();
-      if (!serviceEnabled) {
-        serviceEnabled = await location.requestService();
-        if (!serviceEnabled) throw 'GPS tidak aktif';
-      }
-      PermissionStatus permissionGranted = await location.hasPermission();
-      if (permissionGranted == PermissionStatus.denied) {
-        permissionGranted = await location.requestPermission();
-        if (permissionGranted != PermissionStatus.granted) throw 'Izin lokasi ditolak';
-      }
-      LocationData locationData = await location.getLocation();
-      
-      if (locationData.latitude == null || locationData.longitude == null) throw 'GPS Error';
-
-      _latitude = locationData.latitude;
-      _longitude = locationData.longitude;
-
-      try {
-        List<geo.Placemark> placemarks = await geo.placemarkFromCoordinates(_latitude!, _longitude!);
-        if (placemarks.isNotEmpty) {
-          geo.Placemark place = placemarks[0];
-          String address = [place.street, place.subLocality, place.locality].where((s) => s != null && s.isNotEmpty).join(', ');
-          _locationCtrl.text = address.isEmpty ? "$_latitude, $_longitude" : address;
-        } else {
-          _locationCtrl.text = "${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}";
-        }
-      } catch (_) {
-        _locationCtrl.text = "${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}";
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal: $e")));
+      // Jika gagal, baru pakai koordinat (daripada kosong)
+      setState(() {
+         _locationCtrl.text = "${point.latitude}, ${point.longitude}";
+         _latitude = point.latitude;
+         _longitude = point.longitude;
+         _isAddressValid = true;
+      });
     } finally {
       setState(() => _isLoadingLocation = false);
     }
   }
 
+  // --- 3. GPS OTOMATIS ---
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isLoadingLocation = true);
+    Location location = Location();
+    try {
+      bool serviceEnabled = await location.serviceEnabled();
+      if (!serviceEnabled) { serviceEnabled = await location.requestService(); if (!serviceEnabled) throw 'GPS mati'; }
+      if (await location.hasPermission() == PermissionStatus.denied) await location.requestPermission();
+      
+      LocationData locData = await location.getLocation();
+      if (locData.latitude != null && locData.longitude != null) {
+        final point = LatLng(locData.latitude!, locData.longitude!);
+        _mapController.move(point, 15);
+        // Panggil fungsi konversi alamat
+        _getAddressFromLatLng(point);
+      }
+    } catch (e) { 
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal GPS: $e"))); 
+      setState(() => _isLoadingLocation = false); 
+    } 
+  }
+
+  // --- 4. AI GEMINI ---
+  Future<void> _analyzeImageWithGemini(File image) async {
+    setState(() => _isAnalyzing = true);
+    try {
+      final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: AppConstants.geminiApiKey);
+      final imageBytes = await image.readAsBytes();
+      
+      final prompt = TextPart("""
+        Analisis gambar produk ini. Output WAJIB JSON murni tanpa markdown.
+        Aturan:
+        1. 'price': HARUS angka integer murni (contoh: 150000).
+        2. 'category': Pilih satu dari: ${_validCategories.join(', ')}.
+        3. 'title': Nama produk singkat (Max 40 huruf).
+        JSON: { "title": "...", "price": 100000, "category": "...", "description": "...", "tags": [] }
+      """);
+
+      final response = await model.generateContent([Content.multi([prompt, DataPart('image/jpeg', imageBytes)])]);
+      
+      if (response.text != null) {
+        String cleanJson = response.text!.replaceAll('```json', '').replaceAll('```', '').trim();
+        final Map<String, dynamic> data = jsonDecode(cleanJson);
+
+        setState(() {
+          _titleCtrl.text = data['title'] ?? '';
+          _priceCtrl.text = (data['price'] ?? 0).toString().replaceAll(RegExp(r'[^0-9]'), ''); 
+          String aiCat = data['category'] ?? '';
+          if (_validCategories.contains(aiCat)) { _selectedCategory = aiCat; } else { _selectedCategory = null; }
+          _descCtrl.text = data['description'] ?? '';
+          _aiTags = List<String>.from(data['tags'] ?? []);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ AI Selesai!"), backgroundColor: Colors.green));
+      }
+    } catch (e) { 
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("AI Gagal: $e")));
+    } 
+    finally { setState(() => _isAnalyzing = false); }
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery); 
+    if (pickedFile != null) {
+      final file = File(pickedFile.path);
+      setState(() => _imageFile = file);
+      _analyzeImageWithGemini(file);
+    }
+  }
+
   Future<void> _uploadProduct() async {
-    if (!_formKey.currentState!.validate() || _imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto wajib ada!'), backgroundColor: Colors.red));
+    if (!_formKey.currentState!.validate() || _imageFile == null || _selectedCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lengkapi data & foto!'), backgroundColor: Colors.red));
       return;
+    }
+    if (!_isAddressValid) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pilih alamat valid dari saran/peta!'), backgroundColor: Colors.orange));
+       return;
     }
 
     setState(() => _isUploading = true);
@@ -182,15 +238,15 @@ class _UploadProductPageState extends State<UploadProductPage> {
 
       await supabase.from('products').insert({
         'user_id': user.id,
-        'title': _titleController.text,
-        'description': _descController.text,
-        'price': int.parse(_priceController.text),
-        'category': _categoryController.text,
+        'title': _titleCtrl.text,
+        'description': _descCtrl.text,
+        'price': int.parse(_priceCtrl.text),
+        'category': _selectedCategory,
         'image_url': imageUrl, 
         'city': _locationCtrl.text,
         'address': _locationCtrl.text,
-        'latitude': _latitude,
-        'longitude': _longitude,
+        'latitude': _latitude ?? _pickedLocation.latitude,
+        'longitude': _longitude ?? _pickedLocation.longitude,
         'status': 'Tersedia',
         'ai_tags': _aiTags, 
       });
@@ -200,7 +256,7 @@ class _UploadProductPageState extends State<UploadProductPage> {
         Navigator.pop(context);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal Upload: $e')));
     } finally {
       setState(() => _isUploading = false);
     }
@@ -215,85 +271,116 @@ class _UploadProductPageState extends State<UploadProductPage> {
         child: Form(
           key: _formKey,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- AREA FOTO ---
-              GestureDetector(
+               GestureDetector(
                 onTap: _pickImage,
                 child: Container(
-                  height: 200,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey),
-                    image: _imageFile != null ? DecorationImage(image: FileImage(_imageFile!), fit: BoxFit.cover) : null
-                  ),
-                  child: _imageFile == null 
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center, 
-                          children: [
-                            Icon(Icons.add_a_photo, size: 50, color: Theme.of(context).primaryColor), 
-                            const SizedBox(height: 8),
-                            const Text("Ketuk untuk Foto", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                            const Text("AI akan otomatis mengisi data!", style: TextStyle(fontSize: 10, color: Colors.blue)),
-                          ]
-                        ) 
-                      : null,
+                  height: 180, width: double.infinity,
+                  decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12), image: _imageFile != null ? DecorationImage(image: FileImage(_imageFile!), fit: BoxFit.cover) : null),
+                  child: _imageFile == null ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.add_a_photo, size: 50, color: Colors.grey), Text("Foto & Scan AI")]) : null,
                 ),
               ),
               
-              // Loading Indikator AI
               if (_isAnalyzing)
                 Container(
                   margin: const EdgeInsets.symmetric(vertical: 10),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(8)),
-                  child: const Row(
-                    children: [
-                      SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                      SizedBox(width: 10),
-                      Expanded(child: Text("Gemini sedang menganalisa foto...", style: TextStyle(color: Colors.blue, fontStyle: FontStyle.italic))),
-                    ],
-                  ),
+                  child: const Row(children: [SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Expanded(child: Text("Gemini sedang menganalisa foto...", style: TextStyle(color: Colors.blue, fontStyle: FontStyle.italic)))]),
                 ),
 
               const SizedBox(height: 16),
-              
-              // Form Fields
-              TextFormField(controller: _titleController, decoration: const InputDecoration(labelText: 'Nama Produk', border: OutlineInputBorder(), prefixIcon: Icon(Icons.shopping_bag)), validator: (v) => v!.isEmpty ? 'Wajib diisi' : null),
+              TextFormField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Nama Produk', border: OutlineInputBorder(), prefixIcon: Icon(Icons.shopping_bag)), validator: (v) => v!.isEmpty ? 'Wajib diisi' : null),
               const SizedBox(height: 12),
-              TextFormField(controller: _priceController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Harga (Rp)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.attach_money))),
-              const SizedBox(height: 12),
-              TextFormField(controller: _categoryController, decoration: const InputDecoration(labelText: 'Kategori', border: OutlineInputBorder(), prefixIcon: Icon(Icons.category))),
+              TextFormField(controller: _priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Harga (Rp)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.attach_money)), validator: (v) => v!.isEmpty ? 'Wajib diisi' : null),
               const SizedBox(height: 12),
               
-              // Lokasi
-              Row(
-                children: [
-                  Expanded(child: TextFormField(controller: _locationCtrl, decoration: const InputDecoration(labelText: 'Lokasi COD', border: OutlineInputBorder(), prefixIcon: Icon(Icons.pin_drop)), validator: (v) => v!.isEmpty ? 'Wajib diisi' : null)),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(8)),
-                    child: IconButton(
-                      icon: _isLoadingLocation ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location, color: Colors.red),
-                      onPressed: _getCurrentLocation,
-                    ),
-                  )
-                ],
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                decoration: const InputDecoration(labelText: 'Kategori', border: OutlineInputBorder(), prefixIcon: Icon(Icons.category)),
+                hint: const Text("Pilih Kategori"),
+                items: _validCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: (val) => setState(() => _selectedCategory = val),
+                validator: (v) => v == null ? 'Pilih kategori' : null,
               ),
+
+              const SizedBox(height: 20),
               
-              const SizedBox(height: 12),
-              TextFormField(controller: _descController, maxLines: 5, decoration: const InputDecoration(labelText: 'Deskripsi Produk', border: OutlineInputBorder(), alignLabelWithHint: true)),
+              const Text("Lokasi COD (Wajib Valid)", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
               
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: (_isUploading || _isAnalyzing) ? null : _uploadProduct,
-                  child: _isUploading ? const CircularProgressIndicator(color: Colors.white) : const Text('POSTING SEKARANG'),
+              TextField(
+                controller: _locationCtrl,
+                onChanged: _onSearchChanged,
+                decoration: InputDecoration(
+                  labelText: 'Ketik Nama Jalan / Tempat...',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _isSearchingAddress || _isLoadingLocation 
+                      ? const Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2)) 
+                      : IconButton(icon: const Icon(Icons.clear), onPressed: () { _locationCtrl.clear(); setState(() { _addressSuggestions = []; _isAddressValid = false; }); }),
+                  helperText: _isAddressValid ? "✅ Alamat Valid" : "Ketik lalu PILIH dari saran atau KLIK PETA",
+                  helperStyle: TextStyle(color: _isAddressValid ? Colors.green : Colors.red),
                 ),
               ),
+
+              if (_addressSuggestions.isNotEmpty)
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  margin: const EdgeInsets.only(top: 4),
+                  decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _addressSuggestions.length,
+                    separatorBuilder: (_,__) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final place = _addressSuggestions[index];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.location_on, size: 16, color: Colors.red),
+                        title: Text(place['display_name']),
+                        onTap: () => _selectSuggestion(place),
+                      );
+                    },
+                  ),
+                ),
+
+              const SizedBox(height: 12),
+              
+              Container(
+                height: 250,
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(12)),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _pickedLocation,
+                          initialZoom: 15.0,
+                          // PERBAIKAN: Panggil fungsi alamat saat tap
+                          onTap: (_, point) {
+                             _getAddressFromLatLng(point); 
+                          }
+                        ),
+                        children: [
+                          TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.example.smart_marketplace'),
+                          MarkerLayer(markers: [Marker(point: _pickedLocation, width: 40, height: 40, child: const Icon(Icons.location_on, color: Colors.red, size: 40))]),
+                        ],
+                      ),
+                      Positioned(bottom: 10, right: 10, child: FloatingActionButton.small(onPressed: _getCurrentLocation, backgroundColor: Colors.white, child: _isLoadingLocation ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator()) : const Icon(Icons.my_location, color: Colors.blue)))
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 12),
+              TextFormField(controller: _descCtrl, maxLines: 4, decoration: const InputDecoration(labelText: 'Deskripsi Produk', border: OutlineInputBorder(), alignLabelWithHint: true)),
+              
+              const SizedBox(height: 24),
+              SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: (_isUploading) ? null : _uploadProduct, child: _isUploading ? const CircularProgressIndicator(color: Colors.white) : const Text('POSTING SEKARANG'))),
             ],
           ),
         ),
